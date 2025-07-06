@@ -11,7 +11,14 @@ import soundfile as sf
 import tempfile
 from datetime import datetime
 
-is_shared_ui = True if "fffiloni/Meigen-MultiTalk" in os.environ['SPACE_ID'] else False
+is_shared_ui = True if "fffiloni/Meigen-MultiTalk" in os.environ.get('SPACE_ID', '') else False
+
+# Use network volume path - modify this path if your volume is mounted differently
+VOLUME_PATH = "/workspace"
+WEIGHTS_DIR = os.path.join(VOLUME_PATH, "weights")
+
+# Ensure weights directory exists
+os.makedirs(WEIGHTS_DIR, exist_ok=True)
 
 def trim_audio_to_5s_temp(audio_path, sample_rate=16000):
     max_duration_sec = 5
@@ -35,57 +42,79 @@ def trim_audio_to_5s_temp(audio_path, sample_rate=16000):
 num_gpus = torch.cuda.device_count()
 print(f"GPU AVAILABLE: {num_gpus}")
 
-# Download All Required Models using `snapshot_download`
+# Define model paths using network volume
+wan_model_local_dir = os.path.join(WEIGHTS_DIR, "Wan2.1-I2V-14B-480P")
+wav2vec_local_dir = os.path.join(WEIGHTS_DIR, "chinese-wav2vec2-base")
+multitalk_local_dir = os.path.join(WEIGHTS_DIR, "MeiGen-MultiTalk")
+
+# Download All Required Models using `snapshot_download` (only if not already present)
 
 # Download Wan2.1-I2V-14B-480P model
-wan_model_path = snapshot_download(
-    repo_id="Wan-AI/Wan2.1-I2V-14B-480P",
-    local_dir="./weights/Wan2.1-I2V-14B-480P",
-    #local_dir_use_symlinks=False
-)
+if not os.path.exists(wan_model_local_dir):
+    print("Downloading Wan2.1-I2V-14B-480P model...")
+    wan_model_path = snapshot_download(
+        repo_id="Wan-AI/Wan2.1-I2V-14B-480P",
+        local_dir=wan_model_local_dir,
+        #local_dir_use_symlinks=False
+    )
+    print(f"Wan2.1-I2V-14B-480P model downloaded to: {wan_model_local_dir}")
+else:
+    print(f"Wan2.1-I2V-14B-480P model already exists at: {wan_model_local_dir}")
 
 # Download Chinese wav2vec2 model
-wav2vec_path = snapshot_download(
-    repo_id="TencentGameMate/chinese-wav2vec2-base",
-    local_dir="./weights/chinese-wav2vec2-base",
-    #local_dir_use_symlinks=False
-)
+if not os.path.exists(wav2vec_local_dir):
+    print("Downloading chinese-wav2vec2-base model...")
+    wav2vec_path = snapshot_download(
+        repo_id="TencentGameMate/chinese-wav2vec2-base",
+        local_dir=wav2vec_local_dir,
+        #local_dir_use_symlinks=False
+    )
+    print(f"chinese-wav2vec2-base model downloaded to: {wav2vec_local_dir}")
+else:
+    print(f"chinese-wav2vec2-base model already exists at: {wav2vec_local_dir}")
 
 # Download MeiGen MultiTalk weights
-multitalk_path = snapshot_download(
-    repo_id="MeiGen-AI/MeiGen-MultiTalk",
-    local_dir="./weights/MeiGen-MultiTalk",
-    #local_dir_use_symlinks=False
-)
+if not os.path.exists(multitalk_local_dir):
+    print("Downloading MeiGen-MultiTalk model...")
+    multitalk_path = snapshot_download(
+        repo_id="MeiGen-AI/MeiGen-MultiTalk",
+        local_dir=multitalk_local_dir,
+        #local_dir_use_symlinks=False
+    )
+    print(f"MeiGen-MultiTalk model downloaded to: {multitalk_local_dir}")
+else:
+    print(f"MeiGen-MultiTalk model already exists at: {multitalk_local_dir}")
 
 # Define paths
-base_model_dir = "./weights/Wan2.1-I2V-14B-480P"
-multitalk_dir = "./weights/MeiGen-MultiTalk"
+base_model_dir = wan_model_local_dir
+multitalk_dir = multitalk_local_dir
 
 # File to rename
 original_index = os.path.join(base_model_dir, "diffusion_pytorch_model.safetensors.index.json")
 backup_index = os.path.join(base_model_dir, "diffusion_pytorch_model.safetensors.index.json_old")
 
-# Rename the original index file
-if os.path.exists(original_index):
+# Rename the original index file (only if not already done)
+if os.path.exists(original_index) and not os.path.exists(backup_index):
     os.rename(original_index, backup_index)
     print("Renamed original index file to .json_old")
 
-# Copy updated index file from MultiTalk
-shutil.copy2(
-    os.path.join(multitalk_dir, "diffusion_pytorch_model.safetensors.index.json"),
-    base_model_dir
-)
+# Copy updated index file from MultiTalk (only if source exists and target doesn't match)
+multitalk_index = os.path.join(multitalk_dir, "diffusion_pytorch_model.safetensors.index.json")
+target_index = os.path.join(base_model_dir, "diffusion_pytorch_model.safetensors.index.json")
 
-# Copy MultiTalk model weights
-shutil.copy2(
-    os.path.join(multitalk_dir, "multitalk.safetensors"),
-    base_model_dir
-)
+if os.path.exists(multitalk_index) and not os.path.exists(target_index):
+    shutil.copy2(multitalk_index, base_model_dir)
+    print("Copied MultiTalk index file")
 
-print("Copied MultiTalk files into base model directory.")
+# Copy MultiTalk model weights (only if source exists and target doesn't exist)
+multitalk_weights = os.path.join(multitalk_dir, "multitalk.safetensors")
+target_weights = os.path.join(base_model_dir, "multitalk.safetensors")
 
+if os.path.exists(multitalk_weights) and not os.path.exists(target_weights):
+    shutil.copy2(multitalk_weights, base_model_dir)
+    print("Copied MultiTalk model weights")
 
+print("Model setup completed.")
 
 # Check if CUDA-compatible GPU is available
 if torch.cuda.is_available():
@@ -94,13 +123,11 @@ if torch.cuda.is_available():
     print(f"Current GPU: {gpu_name}")
 
     # Enforce GPU requirement
-    if "A100" not in gpu_name and "L4" not in gpu_name:
-        raise RuntimeError(f"This notebook requires an A100 or L4 GPU. Found: {gpu_name}")
-    elif "L4" in gpu_name:
-        print("Warning: L4 or L40S is supported, but A100 is recommended for faster inference.")
+    if "A100" not in gpu_name and "L4" not in gpu_name and "L40S" not in gpu_name:
+        print(f"Warning: This model is optimized for A100, L4, or L40S GPUs. Found: {gpu_name}")
+        # Don't raise error, just warn
 else:
     raise RuntimeError("No CUDA-compatible GPU found. An A100, L4 or L40S GPU is required.")
-
 
 GPU_TO_VRAM_PARAMS = {
     "NVIDIA A100": 11000000000,
@@ -109,10 +136,10 @@ GPU_TO_VRAM_PARAMS = {
     "NVIDIA L4": 5000000000,
     "NVIDIA L40S": 11000000000
 }
-USED_VRAM_PARAMS = GPU_TO_VRAM_PARAMS[gpu_name]
+
+# Default VRAM params if GPU not in list
+USED_VRAM_PARAMS = GPU_TO_VRAM_PARAMS.get(gpu_name, 5000000000)
 print("Using", USED_VRAM_PARAMS, "for num_persistent_param_in_dit")
-
-
 
 def create_temp_input_json(prompt: str, cond_image_path: str, cond_audio_path_spk1: str, cond_audio_path_spk2: str) -> str:
     """
@@ -149,7 +176,6 @@ def create_temp_input_json(prompt: str, cond_image_path: str, cond_audio_path_sp
     print(f"Temporary input JSON saved to: {temp_json_path}")
     return temp_json_path
 
-
 def infer(prompt, cond_image_path, cond_audio_path_spk1, cond_audio_path_spk2, sample_steps):
 
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S%f")
@@ -172,10 +198,10 @@ def infer(prompt, cond_image_path, cond_audio_path_spk1, cond_audio_path_spk2, s
     input_json_path = create_temp_input_json(prompt, cond_image_path, cond_audio_path_spk1, cond_audio_path_spk2)
     temp_files_to_cleanup.append(input_json_path)
     
-# Base args
+    # Base args - use network volume paths
     common_args = [
-        "--ckpt_dir", "weights/Wan2.1-I2V-14B-480P",
-        "--wav2vec_dir", "weights/chinese-wav2vec2-base",
+        "--ckpt_dir", wan_model_local_dir,
+        "--wav2vec_dir", wav2vec_local_dir,
         "--input_json", input_json_path,
         "--sample_steps", str(sample_steps),
         "--mode", "streaming",
@@ -287,7 +313,7 @@ with gr.Blocks(title="MultiTalk Inference") as demo:
                     minimum=2,
                     maximum=25,
                     step=1,
-                    interactive=False if is_shared_ui else True
+                    interactive=True  # Allow adjustment since this isn't shared UI
                 )
 
             submit_btn = gr.Button("Generate")
@@ -309,4 +335,4 @@ with gr.Blocks(title="MultiTalk Inference") as demo:
         outputs=output_video
     )
 
-demo.queue(max_size=4).launch(ssr_mode=False, show_error=True, show_api=False)
+demo.queue(max_size=4).launch(server_name="0.0.0.0", server_port=8080, ssr_mode=False, show_error=True, show_api=False)
