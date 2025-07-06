@@ -1,0 +1,9 @@
+{
+    "prompt": "In a cozy recording studio, a man and a woman are singing together with passion and emotion. The man, with short brown hair, wears a light gray button-up shirt, his expression filled with concentration and warmth. The woman, with long wavy brown hair, dons a sleeveless dress adorned with small polka dots, her eyes closed as she belts out a heartfelt melody. The studio is equipped with professional microphones, and the background features soundproofing panels, creating an intimate and focused atmosphere. A close-up shot captures their expressions and the intensity of their performance.",
+    "cond_image": "examples/multi/2/multi2.png",
+    "audio_type": "para",
+    "cond_audio": {
+        "person1": "examples/multi/2/1.wav",
+        "person2": "examples/multi/2/1.wav"
+    }
+}
