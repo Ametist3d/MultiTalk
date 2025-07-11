@@ -205,6 +205,12 @@ def _parse_args():
         default=55,
         help="Norm threshold used in adaptive projected guidance (APG)."
     )
+    parser.add_argument(
+    "--n_prompt",
+    type=str,
+    default="",
+    help="Negative prompt for content exclusion."
+    )
 
     
     args = parser.parse_args()
@@ -464,6 +470,7 @@ def generate(args):
         wan_i2v.enable_vram_management(
             num_persistent_param_in_dit=args.num_persistent_param_in_dit
         )
+    n_prompt = args.n_prompt if hasattr(args, 'n_prompt') and args.n_prompt else input_data.get('n_prompt', "")
     
     logging.info("Generating video ...")
     video = wan_i2v.generate(
@@ -475,6 +482,7 @@ def generate(args):
         sampling_steps=args.sample_steps,
         text_guide_scale=args.sample_text_guide_scale,
         audio_guide_scale=args.sample_audio_guide_scale,
+        n_prompt=n_prompt, 
         seed=args.base_seed,
         offload_model=args.offload_model,
         max_frames_num=args.frame_num if args.mode == 'clip' else 1000,
